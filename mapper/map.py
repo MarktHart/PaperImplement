@@ -11,18 +11,7 @@ def map_model(original, clone, original_input, clone_input):
     original_modules = named_lower_modules(original)
     clone_modules = named_lower_modules(clone)
 
-    original_parameters = [k for k in original_modules if next(k.parameters(), None) is not None]
-    clone_parameters = [k for k in clone_modules if next(k.parameters(), None) is not None]
-
-    if not verify_learned_parameter_types(original_parameters, clone_parameters):
-        return
-
-    original_non_parameters = [k for k in original_modules if next(k.parameters(), None) is None]
-    clone_non_parameters = [k for k in clone_modules if next(k.parameters(), None) is None]
-    matching_non_learned_types = extra_non_learned_parameters(original_non_parameters, clone_non_parameters)
-
-    original_parameters = [k for k in original_modules if k in original_parameters or type(k) in matching_non_learned_types]
-    clone_parameters = [k for k in clone_modules if k in clone_parameters or type(k) in matching_non_learned_types]
+    original_parameters, clone_parameters = select_clonable_modules(original_modules, clone_modules)
 
     cached_original_param_inputs = hook_result_caching(original_parameters)
     cached_clone_param_inputs = hook_result_caching(clone_parameters)
@@ -35,6 +24,7 @@ def map_model(original, clone, original_input, clone_input):
         torch.manual_seed(11)
         clone(**clone_input)
         return cached_original_param_inputs, cached_clone_param_inputs
+
     mapping = {}
     previous_len_mapping = -1
 
@@ -42,42 +32,42 @@ def map_model(original, clone, original_input, clone_input):
         previous_len_mapping = len(mapping)
         match = find_matching_parameter(clone_forward)
 
-        if match is None:
-            logger.warning("No matching inputs found between clone and original")
-            break
-
         match_module, match_input = match
 
-        all_original_matches = [k for k, v in cached_original_param_inputs.items() if type(k) == type(match_module) and equal(match_input, v)]
-        all_clone_matches = [k for k, v in cached_clone_param_inputs.items() if type(k) == type(match_module) and equal(match_input, v)]
+        all_original_matches = [k for k, v in cached_original_param_inputs.items()
+                                    if type(k) == type(match_module) and equal(match_input, v)]
+        all_clone_matches = [k for k, v in cached_clone_param_inputs.items()
+                                    if type(k) == type(match_module) and equal(match_input, v)]
 
         if len(all_clone_matches) != len(all_original_matches):
-            logger.warning("Number of suitable modules for clone and original do not match")
-            break
+            raise ValueError("Number of suitable modules for clone and original do not match")
 
         if len(all_clone_matches) == 1:
-            if not map_single_match(all_clone_matches[0], all_original_matches[0]):
-                return
-
+            map_single_match(all_clone_matches[0], all_original_matches[0])
             mapping[all_clone_matches[0]] = all_original_matches[0]
             del cached_original_param_inputs[all_original_matches[0]]
 
         elif len(all_clone_matches) > 1:
             assert len(all_clone_matches) < 6
 
-            match_order = map_multiple_matches(all_clone_matches, all_original_matches, clone_forward, )
+            match_order = map_multiple_matches(all_clone_matches, all_original_matches, clone_forward)
             if match_order is None:
-                logger.warning(f"No valid permutations found in: {[m._name for m in all_original_matches]} -x> {[m._name for m in all_clone_matches]}")
-                break
+                raise ValueError(f"No valid permutations: {[m._name for m in all_original_matches]}, "
+                                    f"{[m._name for m in all_clone_matches]}")
 
             for original_match, clone_match in zip(all_original_matches, match_order):
                 mapping[clone_match] = original_match
                 del cached_original_param_inputs[original_match]
 
     if len(clone_parameters) > len(mapping):
-        logger.warning(f"Mapping exited with {len(cached_original_param_inputs)} original modules and {len(clone_parameters) - len(mapping)} clone modules left")
+        message = (f"Mapping exited with: "
+                    f"{len(cached_original_param_inputs)} original modules "
+                    f"and {len(clone_parameters) - len(mapping)} clone modules left")
+        logger.warning(message)
         probable_module = [m for m in expected_original_order if m in cached_original_param_inputs][0]
-        logger.warning(f"Expected mismatch around {original_modules[probable_module]} \n\t\t\tinput shape: {cached_original_param_inputs[probable_module].shape})")
+        logger.warning(f"Expected mismatch around {probable_module._name}\n"
+                        f"\t\t\tinput shape: {cached_original_param_inputs[probable_module].shape})")
+        raise ValueError(message)
     else:
         logger.info("Mapping done!")
         return mapping
@@ -142,8 +132,7 @@ def verify_learned_parameter_types(original, clone):
                 logger.warning(f"{t}: (original) {original_count} != {clone_count} (clone)")
                 logger.debug(f"Original: {[module._name for module in original if type(module) == t]}")
                 logger.debug(f"Clone: {[module._name for module in clone if type(module) == t]}")
-
-    return original_counts == clone_counts
+        raise ValueError("{t}: (original) {original_count} != {clone_count} (clone)")
 
 
 def extra_non_learned_parameters(original, clone):
@@ -165,6 +154,7 @@ def find_matching_parameter(clone_forward):
     for module, ins in original.items():
         if any(type(module) == type(clone_module) and equal(ins, clone_ins) for clone_module, clone_ins in clone.items()):
             return (module, ins)
+    raise ValueError("No matching inputs found between clone and original")
 
 
 def map_single_match(clone, original):
@@ -175,11 +165,12 @@ def map_single_match(clone, original):
     if len(mismatched_parameters) > 0:
         class_str = str(type(clone)).split('.')[-1][:-2]
         for param, original_value, clone_value in mismatched_parameters:
-            logger.warning(f"Found mismatch in {class_str} (clone.){clone._name}.{param}={clone_value}, while {original._name}.{param}={original_value}")
-        return False
+            logger.warning(f"Found mismatch in {class_str} "
+                                f"(clone.){clone._name}.{param}={clone_value}, "
+                                f"while {original._name}.{param}={original_value}")
+        raise ValueError("Paramater mismatch")
 
     clone.load_state_dict(original.state_dict())
-    return True
 
 
 def map_multiple_matches(all_clone_matches, all_original_matches, clone_forward):
@@ -203,3 +194,19 @@ def map_multiple_matches(all_clone_matches, all_original_matches, clone_forward)
 
             logger.debug(f"{[m._name for m in all_original_matches]} ->! {[m._name for m in match_order]}")
             return match_order
+
+
+def select_clonable_modules(original_modules, clone_modules):
+    original_parameters = [k for k in original_modules if next(k.parameters(), None) is not None]
+    clone_parameters = [k for k in clone_modules if next(k.parameters(), None) is not None]
+
+    verify_learned_parameter_types(original_parameters, clone_parameters)
+
+    original_non_parameters = [k for k in original_modules if next(k.parameters(), None) is None]
+    clone_non_parameters = [k for k in clone_modules if next(k.parameters(), None) is None]
+    matching_non_learned_types = extra_non_learned_parameters(original_non_parameters, clone_non_parameters)
+
+    original_parameters = [k for k in original_modules if k in original_parameters or type(k) in matching_non_learned_types]
+    clone_parameters = [k for k in clone_modules if k in clone_parameters or type(k) in matching_non_learned_types]
+
+    return original_parameters, clone_parameters
