@@ -18,8 +18,8 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(p=attention_drop_p)
 
         self.attention_softmax = nn.Softmax(dim=-1)
-        self.scaler = (hidden_size//heads) ** 0.5
-    
+        self.scaler = (hidden_size // heads) ** 0.5
+
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         bs, length, *_ = x.shape
         view_shape = (bs, length, self.heads, self.hidden_size_per_head)
@@ -28,9 +28,9 @@ class MultiHeadAttention(nn.Module):
         v = self.v(x).view(*view_shape).permute(0, 2, 1, 3)
         x = torch.matmul(q, k)
         x = x / self.scaler
-        x = x + mask*-10_000
+        x = x + mask * -10_000
         x = self.attention_softmax(x)
-        x = self.dropout(x) # not mentioned in the paper
+        x = self.dropout(x)  # not mentioned in the paper
         x = torch.matmul(x, v).permute(0, 2, 1, 3).contiguous()
         x = x.view(bs, length, self.hidden_size)
         return self.out(x)
@@ -43,13 +43,13 @@ class AttentionBlock(nn.Module):
         self.attention_drop = nn.Dropout(p=multi_head_attention_drop_p)
         self.attention_norm = nn.LayerNorm((hidden_size,), eps=1e-12)
         self.out = nn.Sequential(
-            nn.Linear(hidden_size, 4*hidden_size),
+            nn.Linear(hidden_size, 4 * hidden_size),
             nn.GELU(),
-            nn.Linear(4*hidden_size, hidden_size),
+            nn.Linear(4 * hidden_size, hidden_size),
         )
         self.out_drop = nn.Dropout(p=out_drop_p)
         self.out_norm = nn.LayerNorm((hidden_size,), eps=1e-12)
-    
+
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         x = x + self.attention_drop(self.attention(x, mask=mask))
         x = self.attention_norm(x)
@@ -66,7 +66,7 @@ class WordEmbedding(nn.Module):
         self.segment = nn.Embedding(num_embeddings=2, embedding_dim=hidden_size)
         self.layernorm = nn.LayerNorm((hidden_size,), eps=1e-12)
         self.dropout = nn.Dropout(p=drop_p)
-    
+
     def forward(self, x: torch.Tensor) -> None:
         _, max_length, *_ = x.shape
         word_encoding = self.word(x)
@@ -74,7 +74,7 @@ class WordEmbedding(nn.Module):
         segment_encoding = self.segment(torch.zeros_like(x))
 
         x = word_encoding + segment_encoding + positional_encoding
-        x = self.layernorm(x) # not mentioned in the paper
+        x = self.layernorm(x)  # not mentioned in the paper
         x = self.dropout(x)
         return x
 
@@ -88,8 +88,11 @@ class Bert(nn.Module):
     def forward(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         bs, max_length, *_ = x.shape
         x = self.embedding(x)
-        mask = (torch.arange(max_length).expand(bs, -1) >= lengths.expand(max_length, -1).transpose(0,1))
-        attention_mask = mask.unsqueeze(1).unsqueeze(1) # alternative: attention_mask = torch.logical_or(mask.unsqueeze(1), mask.unsqueeze(2)).unsqueeze(1)
+        mask = (torch.arange(max_length).expand(bs, -1) >= lengths.expand(max_length, -1).transpose(0, 1))
+
+        # alternative: attention_mask = torch.logical_or(mask.unsqueeze(1), mask.unsqueeze(2)).unsqueeze(1)
+        attention_mask = mask.unsqueeze(1).unsqueeze(1)
+
         for layer in self.layers:
             x = layer(x, mask=attention_mask)
         return x
@@ -97,7 +100,7 @@ class Bert(nn.Module):
     @classmethod
     def large(cls, **kwargs):
         return cls(L=24, H=1024, A=16, **kwargs)
-    
+
     @classmethod
     def base(cls, **kwargs):
         return cls(L=12, H=768, A=12, **kwargs)
