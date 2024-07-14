@@ -9,11 +9,11 @@ def parse_huggingface(state_dict):
     # Some HF weights were not how I expected them to be. No clue why, but the "transformation" monstrosity fixes it.
     weight_transform(
         input_name="model.layers.{layer}.self_attn.q_proj.{t}",
-        transformation=lambda x: x.transpose(0, 1).view(x.size(1), -1, 2, 64).transpose(2, 3).resize(x.size(1), x.size(0)).transpose(0, 1).contiguous(),
+        transformation=lambda x: x.transpose(0, 1).view(x.size(1), -1, 2, 64).transpose(2, 3).reshape(x.size(1), x.size(0)).transpose(0, 1),
     )(state_dict=state_dict)
     weight_transform(
         input_name="model.layers.{layer}.self_attn.k_proj.{t}",
-        transformation=lambda x: x.transpose(0, 1).view(x.size(1), -1, 2, 64).transpose(2, 3).resize(x.size(1), x.size(0)).transpose(0, 1).contiguous(),
+        transformation=lambda x: x.transpose(0, 1).view(x.size(1), -1, 2, 64).transpose(2, 3).reshape(x.size(1), x.size(0)).transpose(0, 1),
     )(state_dict=state_dict)
 
     rules = [
