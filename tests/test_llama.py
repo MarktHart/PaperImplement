@@ -2,7 +2,7 @@ import torch
 
 from transformers import AutoTokenizer
 
-from models.llama.model import Llama, LlamaConfig, GenerationConfig
+from models.llama.model import Llama, LlamaConfig
 from models.llama.hf_llama import state_dict_from_huggingface
 
 
@@ -106,11 +106,9 @@ def test_answer_generate(model, tokenizer, device):
             add_generation_prompt=True
     )
     tokens = torch.tensor(prompt, dtype=torch.int64, device=device)[None, :]
-    generation_config = GenerationConfig(max_new_tokens=8)
-    output = model.generate(tokens=tokens, config=generation_config).tolist()
+    output = model.generate(tokens=tokens, max_new_tokens=8).tolist()
     print(output)
     print(tokenizer.decode(output[0]))
     assert tokenizer.decode(output[0][0]) == "B"
-    assert output[0][1] == generation_config.stop_token
     assert tokenizer.decode(output[0][1]) == "<|eot_id|>"
 

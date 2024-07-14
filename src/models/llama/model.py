@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from dataclasses import dataclass
-from typing import NamedTuple
 
 
 @dataclass
@@ -42,16 +41,6 @@ class LlamaConfig:
         )
 
 
-class GenerationConfig(NamedTuple):
-    max_length: int = 4096
-    max_new_tokens: int = 4096
-    stop_token: int = 128009
-    pad_token: int = 128009
-    temperature: float = 0.6
-    top_p: float = 0.9
-    top_k: int = 128
-
-
 class Llama(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:
         super().__init__()
@@ -71,33 +60,53 @@ class Llama(nn.Module):
         return self.lm_head(self.norm(self.layers(self.embedding(tokens), offset=0)))
 
     @torch.jit.export
-    def generate(self, tokens: torch.Tensor, config: GenerationConfig) -> torch.Tensor:
+    def generate(
+        self,
+        tokens: torch.Tensor,
+        max_length: int = 4096,
+        max_new_tokens: int = 4096,
+        stop_token: int = 128009,
+        pad_token: int = 128009,
+        temperature: float = 0.6,
+        top_p: float = 0.9,
+        top_k: int = 128,
+    ) -> torch.Tensor:
         input_tokens = tokens
         output_tokens = tokens[:, :0]
         completed = torch.zeros_like(input_tokens[:, -1], dtype=torch.bool)
 
         offset: int = 0
-        for _ in range(config.max_new_tokens):
+        for _ in range(max_new_tokens):
             if completed.all():
                 break
 
-            new_token = self.generate_sample(hidden=self.layers(self.embedding(input_tokens), offset=offset), config=config)
+            new_token = self.generate_sample(
+                hidden=self.layers(self.embedding(input_tokens), offset=offset),
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
             offset += input_tokens.size(-1)
-            new_token[completed] = config.pad_token
+            new_token[completed] = pad_token
             input_tokens = new_token[:, None]
             output_tokens = torch.cat([output_tokens, input_tokens], dim=-1)
-            completed[new_token == config.stop_token] = True
+            completed[new_token == stop_token] = True
         return output_tokens
 
-    def generate_sample(self, hidden: torch.Tensor, config: GenerationConfig) -> torch.Tensor:
+    def generate_sample(
+        self,
+        hidden: torch.Tensor,
+        temperature: float,
+        top_k: int,
+        top_p: float,
+    ) -> torch.Tensor:
         new_logit = self.lm_head(self.norm(hidden[:, -1:, :]))[:, -1, :]
-        probs = F.softmax(new_logit / config.temperature, dim=-1)
+        probs = F.softmax(new_logit / temperature, dim=-1)
         probs_order_values, probs_order_indices = probs.sort(dim=-1, descending=True)
 
-        top_k_probs = probs_order_values[:, :config.top_k]
-        top_p_mask = top_k_probs.cumsum(dim=-1) > config.top_p
-        top_p_mask[:, top_p_mask.max(dim=-1).indices] = False
-        top_k_probs[top_p_mask] = 0
+        top_k_probs = probs_order_values[:, :top_k]
+        top_p_mask = top_k_probs.cumsum(dim=-1) > top_p
+        top_k_probs[:, 1:][top_p_mask[:, :-1]] = 0
         return probs_order_indices.gather(dim=-1, index=torch.multinomial(top_k_probs, num_samples=1))[:, 0]
 
 
