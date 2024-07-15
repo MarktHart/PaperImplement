@@ -5,3 +5,15 @@ pythonpath = [
 testpaths = [
   "tests"
 ]
+
+[tool.mypy]
+mypy_path = [
+  "$MYPY_CONFIG_FILE_DIR/src"
+]
+explicit_package_bases = true
+disable_error_code = "import-untyped"
+
+[tool.black]
+line_length = 140
+diff = true
+color = true

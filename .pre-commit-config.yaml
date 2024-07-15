@@ -1,0 +1,31 @@
+repos:
+- repo: local
+  hooks:
+  - id: black
+    name: black
+    stages: [commit]
+    entry: black
+    types: [python]
+    language: python
+    require_serial: true
+    pass_filenames: false
+    always_run: true
+    args: [./src, ./tests]
+  - id: mypy
+    name: mypy
+    entry: mypy
+    types: [python]
+    language: python
+    require_serial: true
+    pass_filenames: false
+    always_run: true
+    args: [./src, ./tests]
+  - id: pytest
+    name: pytest
+    stages: [commit]
+    types: [python]
+    entry: pytest
+    language: system
+    require_serial: true
+    pass_filenames: false
+    always_run: true

@@ -23,7 +23,9 @@ def model_id():
 
 @pytest.fixture(scope="module")
 def model(device, model_id):
-    return hf_fast_model_init(model_id=model_id, mapping_rules=hf_mapping_rules(), device=device, model_class=Llama, config=LlamaConfig.llama3_8b())
+    return hf_fast_model_init(
+        model_id=model_id, mapping_rules=hf_mapping_rules(), device=device, model_class=Llama, config=LlamaConfig.llama3_8b()
+    )
 
 
 @pytest.fixture
@@ -42,15 +44,13 @@ def test_answer_forward(model, tokenizer, device):
         {"role": "user", "content": "Which number is the largest?\nA : 10\nB : 100\nC : 5\nD: 42\n"},
     ]
 
-    prompt = tokenizer.apply_chat_template(
-        messages, 
-        tokenize=True, 
-        add_generation_prompt=True
-    )
+    prompt = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
 
     output = []
     for i in range(8):
-        output.append(model.forward(torch.tensor(prompt + output, dtype=torch.int64, device=device)[None, :])[0, -1, :].max(dim=-1).indices.tolist())
+        output.append(
+            model.forward(torch.tensor(prompt + output, dtype=torch.int64, device=device)[None, :])[0, -1, :].max(dim=-1).indices.tolist()
+        )
         if tokenizer.decode([output[-1]]) == "<|eot_id|>":
             break
     print(tokenizer.decode(prompt) + "\n\n")
@@ -63,20 +63,20 @@ def test_answer_forward(model, tokenizer, device):
 def test_trace(model, tokenizer, device):
     with torch.jit.optimized_execution(False):
         model = torch.jit.trace(model, (torch.arange(21, dtype=torch.int64, device=device).reshape(3, 7),))
-        
+
         for f in [test_answer_forward, test_answer_generate]:
             f(model=model, tokenizer=tokenizer, device=device)
-            f(model=model, tokenizer=tokenizer, device=device) # Second, not first, call is when the model is jit compiled
+            f(model=model, tokenizer=tokenizer, device=device)  # Second, not first, call is when the model is jit compiled
 
 
 @torch.inference_mode()
 def test_script(model, tokenizer, device):
     with torch.jit.optimized_execution(False):
         model = torch.jit.script(model, (torch.arange(21, dtype=torch.int64, device=device).reshape(3, 7),))
-        
+
         for f in [test_answer_forward, test_answer_generate]:
             f(model=model, tokenizer=tokenizer, device=device)
-            f(model=model, tokenizer=tokenizer, device=device) # Second, not first, call is when the model is jit compiled
+            f(model=model, tokenizer=tokenizer, device=device)  # Second, not first, call is when the model is jit compiled
 
 
 @torch.inference_mode()
@@ -87,7 +87,7 @@ def test_answer_generate(model, tokenizer, device):
     ]
 
     prompt = tokenizer.apply_chat_template(
-        messages, 
+        messages,
         tokenize=True,
         add_generation_prompt=True,
     )
@@ -97,4 +97,3 @@ def test_answer_generate(model, tokenizer, device):
     print(tokenizer.decode(output[0]))
     assert tokenizer.decode(output[0][0]) == "B"
     assert tokenizer.decode(output[0][1]) == "<|eot_id|>"
-

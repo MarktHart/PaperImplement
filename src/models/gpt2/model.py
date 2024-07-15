@@ -5,7 +5,9 @@ from torch import nn
 class Layer(nn.Module):
     def __init__(self, heads: int, hidden_size: int, attention_drop_p=0.1, multi_head_attention_drop_p=0.1, out_drop_p=0.1) -> None:
         super().__init__()
-        self.attention_block = nn.MultiheadAttention(num_heads=heads, embed_dim=hidden_size, dropout=attention_drop_p, add_bias_kv=True, batch_first=True)
+        self.attention_block = nn.MultiheadAttention(
+            num_heads=heads, embed_dim=hidden_size, dropout=attention_drop_p, add_bias_kv=True, batch_first=True
+        )
         self.attention_norm = nn.LayerNorm(hidden_size, eps=1e-12)
         self.attention_drop = nn.Dropout(p=multi_head_attention_drop_p)
         self.out_block = nn.Sequential(
@@ -18,7 +20,9 @@ class Layer(nn.Module):
 
     def forward(self, attention_in: tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         x, attention_mask = attention_in
-        x = self.attention_norm(x + self.attention_drop(self.attention_block(key=x, value=x, query=x, key_padding_mask=attention_mask, need_weights=False)[0]))
+        x = self.attention_norm(
+            x + self.attention_drop(self.attention_block(key=x, value=x, query=x, key_padding_mask=attention_mask, need_weights=False)[0])
+        )
         x = self.out_norm(x + self.out_drop(self.out_block(x)))
         return x, attention_mask
 

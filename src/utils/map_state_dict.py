@@ -27,7 +27,9 @@ class MappingRule:
     def apply(self, state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         raise NotImplementedError()
 
-    def parse_kwargs(self, state_dict: dict[str, torch.Tensor], fstrings: list[str], fstrings_callbacks: list[list[str]]) -> list[list[str]]:
+    def parse_kwargs(
+        self, state_dict: dict[str, torch.Tensor], fstrings: list[str], fstrings_callbacks: list[list[str]]
+    ) -> list[list[str]]:
         kwargs = self.applicable_kwargs(state_dict=state_dict)
         results = [[fstring.format(**kwarg) for fstring in fstrings] for kwarg in kwargs]
         for formatted in results:

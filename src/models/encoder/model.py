@@ -10,7 +10,7 @@ class Encoder(nn.Module):
 
     def forward(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         x = self.embedding(x)
-        mask = (torch.arange(x.size(1)).expand(x.size(0), -1) >= lengths.expand(x.size(1), -1).transpose(0, 1))
+        mask = torch.arange(x.size(1)).expand(x.size(0), -1) >= lengths.expand(x.size(1), -1).transpose(0, 1)
         return self.layers((x, mask))
 
 
@@ -60,7 +60,7 @@ class ResidualBlock(nn.Module):
         self.drop = nn.Dropout(p=drop_p)
         self.block = block
 
-    def forward(self, x)-> torch.Tensor:
+    def forward(self, x) -> torch.Tensor:
         return x + self.norm(self.drop(self.block(x)))
 
 
