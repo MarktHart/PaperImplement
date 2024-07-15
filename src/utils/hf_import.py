@@ -7,17 +7,28 @@ from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 
 
-def hf_safetensor_statedict(model):
+def hf_safetensor_statedict(model_id, ignore_pattern="IGNORE"):
     ext = ".safetensors"
-    download_folder = snapshot_download(repo_id=model, allow_patterns=f"*{ext}")
+    download_folder = snapshot_download(repo_id=model_id, allow_patterns=f"*{ext}", ignore_patterns=f"*{ignore_pattern}*")
 
-    safe_tensors = [os.path.join(download_folder, f) for f in os.listdir(download_folder) if f.endswith(ext)]
+    safe_tensors = [os.path.join(download_folder, f) for f in os.listdir(download_folder) if f.endswith(ext) and ignore_pattern not in f]
 
     params = {}
 
     for file in safe_tensors:
         params |= load_file(file)
     return params
+
+
+def fast_model_init(mapping, model_class, config, device):
+    with torch.device("meta"):
+        model = model_class(config=config)
+        ours = set(model.state_dict().keys())
+        missing = ours - set(mapping.keys())
+        assert len(missing) == 0, f"{len(missing)=}\n{missing}"
+        model.load_state_dict(mapping, assign=True)
+    model.eval().to(device=device)
+    return model
 
 
 def fstring_reverse(fstring, formatted):

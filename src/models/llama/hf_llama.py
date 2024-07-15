@@ -1,21 +1,10 @@
-from utils.hf_import import weight_transform, weight_stack, weight_direct, hf_safetensor_statedict
+from utils.hf_import import weight_stack, weight_direct, hf_safetensor_statedict
 
 
 def state_dict_from_huggingface(model_id):
-    return parse_huggingface(hf_safetensor_statedict(model=model_id))
-
+    return parse_huggingface(state_dict=hf_safetensor_statedict(model_id=model_id))
 
 def parse_huggingface(state_dict):
-    # Some HF weights were not how I expected them to be. No clue why, but the "transformation" monstrosity fixes it.
-    weight_transform(
-        input_name="model.layers.{layer}.self_attn.q_proj.{t}",
-        transformation=lambda x: x.transpose(0, 1).view(x.size(1), -1, 2, 64).transpose(2, 3).reshape(x.size(1), x.size(0)).transpose(0, 1),
-    )(state_dict=state_dict)
-    weight_transform(
-        input_name="model.layers.{layer}.self_attn.k_proj.{t}",
-        transformation=lambda x: x.transpose(0, 1).view(x.size(1), -1, 2, 64).transpose(2, 3).reshape(x.size(1), x.size(0)).transpose(0, 1),
-    )(state_dict=state_dict)
-
     rules = [
         weight_stack(
             input_names=[

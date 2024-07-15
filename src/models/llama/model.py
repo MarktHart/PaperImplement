@@ -102,12 +102,11 @@ class Llama(nn.Module):
     ) -> torch.Tensor:
         new_logit = self.lm_head(self.norm(hidden[:, -1:, :]))[:, -1, :]
         probs = F.softmax(new_logit / temperature, dim=-1)
-        probs_order_values, probs_order_indices = probs.sort(dim=-1, descending=True)
+        top_k_values, top_k_indices =torch.topk(probs, dim=-1, k=top_k, largest=True, sorted=True)
 
-        top_k_probs = probs_order_values[:, :top_k]
-        top_p_mask = top_k_probs.cumsum(dim=-1) > top_p
-        top_k_probs[:, 1:][top_p_mask[:, :-1]] = 0
-        return probs_order_indices.gather(dim=-1, index=torch.multinomial(top_k_probs, num_samples=1))[:, 0]
+        top_p_mask = top_k_values.cumsum(dim=-1) > top_p
+        top_k_values[:, 1:][top_p_mask[:, :-1]] = 0
+        return top_k_indices.gather(dim=-1, index=torch.multinomial(top_k_values, num_samples=1))[:, 0]
 
 
 class LlamaLayer(nn.Module):
@@ -185,8 +184,8 @@ class GroupedQueryAttention(nn.Module):
         self.num_kv_heads = num_kv_heads
         self.in_proj = nn.Linear(self.embed_dim, self.embed_dim + 2 * self.num_kv_heads * self.head_size, bias=bias)
         self.out_proj = nn.Linear(self.embed_dim, self.embed_dim, bias=bias)
-        self.qkv_handler = GroupedQueryCachedAttention(
-            positional_embedding=positional_embedding,
+        self.positional_embedding = positional_embedding
+        self.kv_cache = GroupedQueryAttentionCache(
             max_batch_size=max_batch_size,
             max_seq_len=max_seq_len,
             num_kv_heads=num_kv_heads,
@@ -199,34 +198,53 @@ class GroupedQueryAttention(nn.Module):
         k = k.view(x.size(0), x.size(1), self.num_kv_heads, self.head_size)
         v = v.view(x.size(0), x.size(1), self.num_kv_heads, self.head_size)
 
-        q, k, v = self.qkv_handler(q=q, k=k, v=v, offset=offset)
+        q = self.positional_embedding(t=q, offset=offset)
+        k = self.positional_embedding(t=k, offset=offset)
+
+        k, v = self.kv_cache(k=k, v=v, offset=offset)
 
         k = torch.repeat_interleave(k, dim=2, repeats=self.q_to_kv_ratio)
         v = torch.repeat_interleave(v, dim=2, repeats=self.q_to_kv_ratio)
 
+        # "is_causal=q.size(1) > 1" does not trace
+        # Using attn_mask is theoretically more robust, but practically just slower than "is_causal=(offset == 0)"
+        # attn_mask=torch.ones(q.size(1), k.size(1), dtype=torch.bool, device=q.device).tril(diagonal=k.size(1) - q.size(1)),
         attention_out = F.scaled_dot_product_attention(
             query=q.transpose(1, 2),
             key=k.transpose(1, 2),
             value=v.transpose(1, 2),
-            attn_mask=torch.ones(q.size(1), k.size(1), dtype=torch.bool, device=q.device).tril(diagonal=k.size(1) - q.size(1)),
+            is_causal=(offset == 0),
         ).transpose(1, 2)
         return self.out_proj(attention_out.flatten(2))
 
 
-class GroupedQueryCachedAttention(nn.Module):
-    def __init__(self, positional_embedding, max_batch_size, max_seq_len, num_kv_heads, head_size):
+class GroupedQueryAttentionCache(nn.Module):
+    def __init__(self, max_batch_size, max_seq_len, num_kv_heads, head_size):
         super().__init__()
-        self.positional_embedding = positional_embedding
         self.register_buffer("k_cache", torch.zeros((max_batch_size, max_seq_len, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False)
         self.register_buffer("v_cache", torch.zeros((max_batch_size, max_seq_len, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False)
 
-    def forward(self, q, k, v, offset: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        q = self.positional_embedding(t=q, offset=offset)
-        k = self.positional_embedding(t=k, offset=offset)
-
+    def forward(self, k, v, offset: int) -> tuple[torch.Tensor, torch.Tensor]:
         self.k_cache[:k.size(0), offset:offset + k.size(1), :, :] = k
         self.v_cache[:v.size(0), offset:offset + v.size(1), :, :] = v
-        return q, self.k_cache[:k.size(0), :offset + k.size(1), :, :], self.v_cache[:v.size(0), :offset + v.size(1), :, :]
+        return self.k_cache[:k.size(0), :offset + k.size(1), :, :], self.v_cache[:v.size(0), :offset + v.size(1), :, :]
+
+
+class GroupedQueryAttentionCache_(nn.Module):
+    def __init__(self, max_batch_size, max_seq_len, num_kv_heads, head_size):
+        super().__init__()
+        self.register_buffer("k_cache", torch.zeros((0, 0, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False)
+        self.register_buffer("v_cache", torch.zeros((0, 0, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False)
+
+    def forward(self, k, v, offset: int) -> tuple[torch.Tensor, torch.Tensor]:
+        if offset == 0:
+            self.k_cache = k
+            self.v_cache = v
+            return self.k_cache, self.v_cache
+        
+        self.k_cache = torch.cat([self.k_cache, k], dim=1)
+        self.v_cache = torch.cat([self.v_cache, v], dim=1)
+        return self.k_cache, self.v_cache
 
 
 class RotaryPositionalEmbedding(nn.Module):
@@ -234,7 +252,7 @@ class RotaryPositionalEmbedding(nn.Module):
         super().__init__()
         self.register_buffer(
             "freqs",
-            self.precompute_freqs(
+            self.generate_freqs(
                 embed_dim // num_heads,
                 max_seq_len * 2,
                 theta,
@@ -243,12 +261,12 @@ class RotaryPositionalEmbedding(nn.Module):
         )
 
     def forward(self, t, offset: int) -> torch.Tensor:
-        ct = torch.view_as_complex(t.float().reshape(t.size(0), t.size(1), t.size(2), -1, 2))
+        ct = torch.view_as_complex(t.float().view(t.size(0), t.size(1), t.size(2), 2, -1).transpose(-2, -1).contiguous())
         t_out = torch.view_as_real(ct * self.freqs[None, offset:offset+t.size(1), None, :]).flatten(-2)
         return t_out.type_as(t)
 
     @torch.no_grad
-    def precompute_freqs(self, dim: int, end: int, theta: float):
+    def generate_freqs(self, dim: int, end: int, theta: float):
         with torch.device(torch.get_default_device() if torch.get_default_device().type != "meta" else "cpu"):
             freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
             t = torch.arange(end, device=freqs.device, dtype=torch.float32)

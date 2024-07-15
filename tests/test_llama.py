@@ -2,6 +2,8 @@ import torch
 
 from transformers import AutoTokenizer
 
+from utils.hf_import import fast_model_init
+
 from models.llama.model import Llama, LlamaConfig
 from models.llama.hf_llama import state_dict_from_huggingface
 
@@ -26,14 +28,7 @@ def mapping(model_id):
 
 @pytest.fixture(scope="module")
 def model(device, mapping):
-    with torch.device("meta"):
-        model = Llama(LlamaConfig.llama3_8b())
-        ours = set(model.state_dict().keys())
-        missing = ours - set(mapping.keys())
-        assert len(missing) == 0, f"{len(missing)=}\n{missing}"
-        model.load_state_dict(mapping, assign=True)
-    model.eval().to(device=device)
-    return model
+    return fast_model_init(mapping=mapping, device=device, model_class=Llama, config=LlamaConfig.llama3_8b())
 
 
 @pytest.fixture
@@ -57,9 +52,9 @@ def test_answer_forward(model, tokenizer, device):
     ]
 
     prompt = tokenizer.apply_chat_template(
-            messages, 
-            tokenize=True, 
-            add_generation_prompt=True
+        messages, 
+        tokenize=True, 
+        add_generation_prompt=True
     )
 
     output = []
@@ -101,9 +96,9 @@ def test_answer_generate(model, tokenizer, device):
     ]
 
     prompt = tokenizer.apply_chat_template(
-            messages, 
-            tokenize=True, 
-            add_generation_prompt=True
+        messages, 
+        tokenize=True,
+        add_generation_prompt=True,
     )
     tokens = torch.tensor(prompt, dtype=torch.int64, device=device)[None, :]
     output = model.generate(tokens=tokens, max_new_tokens=8).tolist()
