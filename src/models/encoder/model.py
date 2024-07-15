@@ -19,7 +19,7 @@ class WordEmbedding(nn.Module):
         super().__init__()
         self.word = nn.Embedding(num_embeddings=dict_size, embedding_dim=hidden_size, padding_idx=0)
         self.position = nn.Embedding(num_embeddings=max_sequence_length, embedding_dim=hidden_size)
-        self.layernorm = nn.LayerNorm((hidden_size,), eps=1e-12)
+        self.layernorm = nn.LayerNorm(hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(p=drop_p)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -56,7 +56,7 @@ class Layer(nn.Module):
 class ResidualBlock(nn.Module):
     def __init__(self, block, hidden_size, drop_p) -> None:
         super().__init__()
-        self.norm = nn.LayerNorm((hidden_size,), eps=1e-12)
+        self.norm = nn.LayerNorm(hidden_size, eps=1e-12)
         self.drop = nn.Dropout(p=drop_p)
         self.block = block
 

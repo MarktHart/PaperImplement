@@ -15,8 +15,8 @@ class LlamaConfig:
     vocab_size: int = 128_256
     bias: bool = False
     max_seq_len: int = 8_192
-    rope_theta: float = 500_000.
-    rms_norm_eps: float = 1.e-5
+    rope_theta: float = 500_000.0
+    rms_norm_eps: float = 1.0e-5
 
     max_batch_size: int = 4
 
@@ -55,7 +55,7 @@ class Llama(nn.Module):
         self.lm_head = nn.Linear(config.embed_dim, config.vocab_size, bias=config.bias)
         self.norm = RMSNorm(embed_dim=config.embed_dim, eps=config.rms_norm_eps)
         self.config = config
-    
+
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
         return self.lm_head(self.norm(self.layers(self.embedding(tokens), offset=0)))
 
@@ -102,7 +102,7 @@ class Llama(nn.Module):
     ) -> torch.Tensor:
         new_logit = self.lm_head(self.norm(hidden[:, -1:, :]))[:, -1, :]
         probs = F.softmax(new_logit / temperature, dim=-1)
-        top_k_values, top_k_indices =torch.topk(probs, dim=-1, k=top_k, largest=True, sorted=True)
+        top_k_values, top_k_indices = torch.topk(probs, dim=-1, k=top_k, largest=True, sorted=True)
 
         top_p_mask = top_k_values.cumsum(dim=-1) > top_p
         top_k_values[:, 1:][top_p_mask[:, :-1]] = 0
@@ -144,7 +144,7 @@ class LlamaBlock(nn.Module):
 
 
 class Sequential(nn.Sequential):
-    def forward(self, x, offset: int):
+    def forward(self, x, offset: int = 0):
         for layer in self:
             x = layer(x, offset=offset)
         return x
@@ -166,7 +166,7 @@ class RMSNorm(nn.Module):
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(embed_dim))
-    
+
     def forward(self, x):
         return self.weight * self.casted_forward(x.float()).type_as(x)
 
@@ -175,7 +175,16 @@ class RMSNorm(nn.Module):
 
 
 class GroupedQueryAttention(nn.Module):
-    def __init__(self, embed_dim: int, num_q_heads: int, num_kv_heads: int, bias: bool, positional_embedding: nn.Module, max_batch_size: int, max_seq_len: int) -> None:
+    def __init__(
+        self,
+        embed_dim: int,
+        num_q_heads: int,
+        num_kv_heads: int,
+        bias: bool,
+        positional_embedding: nn.Module,
+        max_batch_size: int,
+        max_seq_len: int,
+    ) -> None:
         super().__init__()
         self.embed_dim = embed_dim
         self.q_to_kv_ratio = num_q_heads // num_kv_heads
@@ -221,27 +230,39 @@ class GroupedQueryAttention(nn.Module):
 class GroupedQueryAttentionCache(nn.Module):
     def __init__(self, max_batch_size, max_seq_len, num_kv_heads, head_size):
         super().__init__()
-        self.register_buffer("k_cache", torch.zeros((max_batch_size, max_seq_len, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False)
-        self.register_buffer("v_cache", torch.zeros((max_batch_size, max_seq_len, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False)
+        self.register_buffer(
+            "k_cache",
+            torch.zeros((max_batch_size, max_seq_len, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")),
+            persistent=False,
+        )
+        self.register_buffer(
+            "v_cache",
+            torch.zeros((max_batch_size, max_seq_len, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")),
+            persistent=False,
+        )
 
     def forward(self, k, v, offset: int) -> tuple[torch.Tensor, torch.Tensor]:
-        self.k_cache[:k.size(0), offset:offset + k.size(1), :, :] = k
-        self.v_cache[:v.size(0), offset:offset + v.size(1), :, :] = v
-        return self.k_cache[:k.size(0), :offset + k.size(1), :, :], self.v_cache[:v.size(0), :offset + v.size(1), :, :]
+        self.k_cache[: k.size(0), offset : offset + k.size(1), :, :] = k
+        self.v_cache[: v.size(0), offset : offset + v.size(1), :, :] = v
+        return self.k_cache[: k.size(0), : offset + k.size(1), :, :], self.v_cache[: v.size(0), : offset + v.size(1), :, :]
 
 
 class GroupedQueryAttentionCache_(nn.Module):
     def __init__(self, max_batch_size, max_seq_len, num_kv_heads, head_size):
         super().__init__()
-        self.register_buffer("k_cache", torch.zeros((0, 0, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False)
-        self.register_buffer("v_cache", torch.zeros((0, 0, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False)
+        self.register_buffer(
+            "k_cache", torch.zeros((0, 0, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False
+        )
+        self.register_buffer(
+            "v_cache", torch.zeros((0, 0, num_kv_heads, head_size), dtype=torch.bfloat16, device=torch.device("cuda")), persistent=False
+        )
 
     def forward(self, k, v, offset: int) -> tuple[torch.Tensor, torch.Tensor]:
         if offset == 0:
             self.k_cache = k
             self.v_cache = v
             return self.k_cache, self.v_cache
-        
+
         self.k_cache = torch.cat([self.k_cache, k], dim=1)
         self.v_cache = torch.cat([self.v_cache, v], dim=1)
         return self.k_cache, self.v_cache
@@ -262,15 +283,14 @@ class RotaryPositionalEmbedding(nn.Module):
 
     def forward(self, t, offset: int) -> torch.Tensor:
         ct = torch.view_as_complex(t.float().view(t.size(0), t.size(1), t.size(2), 2, -1).transpose(-2, -1).contiguous())
-        t_out = torch.view_as_real(ct * self.freqs[None, offset:offset+t.size(1), None, :]).flatten(-2)
+        t_out = torch.view_as_real(ct * self.freqs[None, offset : offset + t.size(1), None, :]).flatten(-2)
         return t_out.type_as(t)
 
-    @torch.no_grad
+    @torch.no_grad()
     def generate_freqs(self, dim: int, end: int, theta: float):
         with torch.device(torch.get_default_device() if torch.get_default_device().type != "meta" else "cpu"):
             freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
             t = torch.arange(end, device=freqs.device, dtype=torch.float32)
             freqs = torch.outer(t, freqs)
-            freqs_cis = torch.polar(torch.ones_like(freqs), freqs) # complex64
+            freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
             return freqs_cis
-

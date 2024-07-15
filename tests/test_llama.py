@@ -2,10 +2,10 @@ import torch
 
 from transformers import AutoTokenizer
 
-from utils.hf_import import fast_model_init
+from utils.hf_import import hf_fast_model_init
 
 from models.llama.model import Llama, LlamaConfig
-from models.llama.hf_llama import state_dict_from_huggingface
+from models.llama.hf_llama import hf_mapping_rules
 
 
 import pytest
@@ -22,13 +22,8 @@ def model_id():
 
 
 @pytest.fixture(scope="module")
-def mapping(model_id):
-    return state_dict_from_huggingface(model_id=model_id)
-
-
-@pytest.fixture(scope="module")
-def model(device, mapping):
-    return fast_model_init(mapping=mapping, device=device, model_class=Llama, config=LlamaConfig.llama3_8b())
+def model(device, model_id):
+    return hf_fast_model_init(model_id=model_id, mapping_rules=hf_mapping_rules(), device=device, model_class=Llama, config=LlamaConfig.llama3_8b())
 
 
 @pytest.fixture
@@ -36,15 +31,11 @@ def tokenizer(model_id):
     return AutoTokenizer.from_pretrained(model_id)
 
 
-def test_nop_time_model_mapping(mapping):
-    pass
-
-
 def test_nop_time_model(model):
     pass
 
 
-@torch.inference_mode
+@torch.inference_mode()
 def test_answer_forward(model, tokenizer, device):
     messages = [
         {"role": "system", "content": "Answer the followling multiple choice question with a single capitalized letter."},
@@ -68,7 +59,7 @@ def test_answer_forward(model, tokenizer, device):
     assert tokenizer.decode([output[1]]) == "<|eot_id|>"
 
 
-@torch.inference_mode
+@torch.inference_mode()
 def test_trace(model, tokenizer, device):
     with torch.jit.optimized_execution(False):
         model = torch.jit.trace(model, (torch.arange(21, dtype=torch.int64, device=device).reshape(3, 7),))
@@ -78,7 +69,7 @@ def test_trace(model, tokenizer, device):
             f(model=model, tokenizer=tokenizer, device=device) # Second, not first, call is when the model is jit compiled
 
 
-@torch.inference_mode
+@torch.inference_mode()
 def test_script(model, tokenizer, device):
     with torch.jit.optimized_execution(False):
         model = torch.jit.script(model, (torch.arange(21, dtype=torch.int64, device=device).reshape(3, 7),))
@@ -88,7 +79,7 @@ def test_script(model, tokenizer, device):
             f(model=model, tokenizer=tokenizer, device=device) # Second, not first, call is when the model is jit compiled
 
 
-@torch.inference_mode
+@torch.inference_mode()
 def test_answer_generate(model, tokenizer, device):
     messages = [
         {"role": "system", "content": "Answer the followling multiple choice question with a single capitalized letter."},

@@ -3,17 +3,17 @@ from torch import nn
 
 
 class Layer(nn.Module):
-    def __init__(self, heads, hidden_size, attention_drop_p=0.1, multi_head_attention_drop_p=0.1, out_drop_p=0.1) -> None:
+    def __init__(self, heads: int, hidden_size: int, attention_drop_p=0.1, multi_head_attention_drop_p=0.1, out_drop_p=0.1) -> None:
         super().__init__()
         self.attention_block = nn.MultiheadAttention(num_heads=heads, embed_dim=hidden_size, dropout=attention_drop_p, add_bias_kv=True, batch_first=True)
-        self.attention_norm = nn.LayerNorm((hidden_size,), eps=1e-12)
+        self.attention_norm = nn.LayerNorm(hidden_size, eps=1e-12)
         self.attention_drop = nn.Dropout(p=multi_head_attention_drop_p)
         self.out_block = nn.Sequential(
             nn.Linear(hidden_size, 4 * hidden_size),
             nn.GELU(),
             nn.Linear(4 * hidden_size, hidden_size),
         )
-        self.out_norm = nn.LayerNorm((hidden_size,), eps=1e-12)
+        self.out_norm = nn.LayerNorm(hidden_size, eps=1e-12)
         self.out_drop = nn.Dropout(p=out_drop_p)
 
     def forward(self, attention_in: tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
@@ -28,7 +28,7 @@ class WordEmbedding(nn.Module):
         super().__init__()
         self.word = nn.Embedding(num_embeddings=dict_size, embedding_dim=hidden_size, padding_idx=0)
         self.position = nn.Embedding(num_embeddings=max_sequence_length, embedding_dim=hidden_size)
-        self.layernorm = nn.LayerNorm((hidden_size,), eps=1e-12)
+        self.layernorm = nn.LayerNorm(hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(p=drop_p)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
