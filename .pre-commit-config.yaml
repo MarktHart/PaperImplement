@@ -10,7 +10,7 @@ repos:
     require_serial: true
     pass_filenames: false
     always_run: true
-    args: [./src, ./tests]
+    args: [--check, ./src, ./tests]
   - id: mypy
     name: mypy
     entry: mypy
@@ -19,7 +19,7 @@ repos:
     require_serial: true
     pass_filenames: false
     always_run: true
-    args: [./src, ./tests]
+    args: [--check, ./src, ./tests]
   - id: pytest
     name: pytest
     stages: [commit]

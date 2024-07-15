@@ -46,7 +46,7 @@ def test_answer_forward(model, tokenizer, device):
 
     prompt = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
 
-    output = []
+    output: list[int] = []
     for i in range(8):
         output.append(
             model.forward(torch.tensor(prompt + output, dtype=torch.int64, device=device)[None, :])[0, -1, :].max(dim=-1).indices.tolist()

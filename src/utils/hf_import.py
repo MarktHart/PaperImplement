@@ -24,7 +24,7 @@ def hf_fast_model_init(model_id, mapping_rules, model_class, config, device):
         expected_keys = list(model.state_dict().keys())
 
     hf_keys = []
-    leftover_state_dict = {}
+    leftover_state_dict: dict[str, torch.Tensor] = {}
     for partial_state_dict in hf_safetensor_state_dict(model_id=model_id, device=device):
         hf_keys.extend(list(partial_state_dict.keys()))
         leftover_state_dict |= partial_state_dict
