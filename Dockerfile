@@ -1,7 +1,7 @@
 ARG NVIDIA_VERSION=24.06
 
 
-FROM nvcr.io/nvidia/pytorch:$NVIDIA_VERSION-py3 as base
+FROM nvcr.io/nvidia/pytorch:$NVIDIA_VERSION-py3 AS base
 
 ENV HUGGINGFACE_HUB_CACHE="/mnt/hub_cache/hf"
 ENV TORCH_HOME="/mnt/hub_cache/torch"
@@ -13,7 +13,7 @@ WORKDIR /workdir
 COPY src src
 
 
-FROM base as test
+FROM base AS unit-test
 
 RUN pip install pytest
 
@@ -23,6 +23,6 @@ COPY pyproject.toml pyproject.toml
 ENTRYPOINT [ "pytest" ]
 
 
-FROM base as final
+FROM base AS final
 
 WORKDIR /workdir/src
