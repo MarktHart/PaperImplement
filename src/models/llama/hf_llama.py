@@ -11,12 +11,13 @@ def hf_mapping_rules() -> list[MappingRule]:
             ],
             output_name="layers.{layer}.attention.block.in_proj.{t}",
         ),
-        StackMappingRule(
-            input_names=[
-                "model.layers.{layer}.mlp.gate_proj.{t}",
-                "model.layers.{layer}.mlp.up_proj.{t}",
-            ],
-            output_name="layers.{layer}.proj.block.in_proj.{t}",
+        DirectMappingRule(
+            input_name="model.layers.{layer}.mlp.gate_proj.{t}",
+            output_name="layers.{layer}.proj.block.gate_proj.{t}",
+        ),
+        DirectMappingRule(
+            input_name="model.layers.{layer}.mlp.up_proj.{t}",
+            output_name="layers.{layer}.proj.block.up_proj.{t}",
         ),
         DirectMappingRule(
             input_name="model.layers.{layer}.self_attn.o_proj.{t}", output_name="layers.{layer}.attention.block.out_proj.{t}"

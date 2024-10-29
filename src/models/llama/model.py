@@ -153,12 +153,12 @@ class Sequential(nn.Sequential):
 class SwiGLU(nn.Module):
     def __init__(self, embed_dim: int, embed_dim_proj: int, bias: bool) -> None:
         super().__init__()
-        self.in_proj = nn.Linear(embed_dim, embed_dim_proj * 2, bias=bias)
+        self.gate_proj = nn.Linear(embed_dim, embed_dim_proj, bias=bias)
+        self.up_proj = nn.Linear(embed_dim, embed_dim_proj, bias=bias)
         self.out_proj = nn.Linear(embed_dim_proj, embed_dim, bias=bias)
 
     def forward(self, x, offset: int):
-        gate, up = torch.tensor_split(self.in_proj(x), 2, dim=-1)
-        return self.out_proj(F.silu(gate) * up)
+        return self.out_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
 
 
 class RMSNorm(nn.Module):
